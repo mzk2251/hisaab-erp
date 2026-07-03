@@ -1,0 +1,983 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Auth & Organization ───────────────────────────────────────────────────
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  password  String
+  name      String
+  role      UserRole @default(USER)
+  isActive  Boolean  @default(true)
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  auditLogs AuditLog[]
+}
+
+enum UserRole {
+  ADMIN
+  MANAGER
+  ACCOUNTANT
+  SALES
+  PURCHASE
+  USER
+}
+
+model Company {
+  id        String   @id @default(cuid())
+  name      String
+  code      String   @unique
+  ntn       String?
+  gst       String?
+  address   String?
+  phone     String?
+  email     String?
+  currency  String   @default("PKR")
+  fiscalYearStart Int @default(7)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users            User[]
+  customers        Customer[]
+  suppliers        Supplier[]
+  items            Item[]
+  locations        Location[]
+  accounts         Account[]
+  costCenters      CostCenter[]
+  currencies       Currency[]
+  salesQuotations  SalesQuotation[]
+  salesOrders      SalesOrder[]
+  deliveryNotes    DeliveryNote[]
+  salesInvoices    SalesInvoice[]
+  purchaseOrders   PurchaseOrder[]
+  goodsReceipts    GoodsReceipt[]
+  purchaseInvoices PurchaseInvoice[]
+  journalEntries   JournalEntry[]
+  bankAccounts     BankAccount[]
+  leads            Lead[]
+  workOrders       WorkOrder[]
+  fixedAssets      FixedAsset[]
+  employees        Employee[]
+  bookings         Booking[]
+  vehicles         Vehicle[]
+  drivers          Driver[]
+  routes           Route[]
+  trips            Trip[]
+  documentAttachments DocumentAttachment[]
+  accountMappings  AccountMapping[]
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  action    String
+  entity    String
+  entityId  String?
+  details   Json?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  createdAt DateTime @default(now())
+}
+
+// ─── General Ledger ────────────────────────────────────────────────────────
+
+model Account {
+  id          String      @id @default(cuid())
+  code        String
+  name        String
+  type        AccountType
+  parentId    String?
+  parent      Account?    @relation("AccountHierarchy", fields: [parentId], references: [id])
+  children    Account[]   @relation("AccountHierarchy")
+  isActive    Boolean     @default(true)
+  companyId   String
+  company     Company     @relation(fields: [companyId], references: [id])
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  journalLines JournalLine[]
+  bankAccounts BankAccount[]
+  debitMappings  AccountMapping[] @relation("DebitMapping")
+  creditMappings AccountMapping[] @relation("CreditMapping")
+
+  @@unique([companyId, code])
+}
+
+enum AccountType {
+  ASSET
+  LIABILITY
+  EQUITY
+  INCOME
+  EXPENSE
+}
+
+model JournalEntry {
+  id          String   @id @default(cuid())
+  reference   String
+  date        DateTime
+  description String?
+  status      DocStatus @default(DRAFT)
+  companyId   String
+  company     Company  @relation(fields: [companyId], references: [id])
+  costCenterId String?
+  costCenter  CostCenter? @relation(fields: [costCenterId], references: [id])
+  lines       JournalLine[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tripExpenses       TripExpense[]
+  fuelLogs           FuelLog[]
+  vehicleMaintenances VehicleMaintenance[]
+}
+
+model JournalLine {
+  id             String       @id @default(cuid())
+  journalEntryId String
+  journalEntry   JournalEntry @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
+  accountId      String
+  account        Account      @relation(fields: [accountId], references: [id])
+  debit          Decimal      @default(0) 
+  credit         Decimal      @default(0) 
+  description    String?
+}
+
+model BankAccount {
+  id        String   @id @default(cuid())
+  name      String
+  accountNo String
+  bankName  String
+  accountId String
+  account   Account  @relation(fields: [accountId], references: [id])
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id])
+  balance   Decimal  @default(0) 
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model CostCenter {
+  id        String   @id @default(cuid())
+  code      String
+  name      String
+  type      CostCenterType @default(DEPARTMENT)
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  journalEntries JournalEntry[]
+  salesInvoices  SalesInvoice[]
+  purchaseInvoices PurchaseInvoice[]
+
+  @@unique([companyId, code])
+}
+
+enum CostCenterType {
+  PROJECT
+  BRANCH
+  DEPARTMENT
+  MACHINE
+}
+
+model Currency {
+  id        String   @id @default(cuid())
+  code      String
+  name      String
+  symbol    String
+  rate      Decimal  @default(1) 
+  rateDate  DateTime @default(now())
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, code])
+}
+
+// ─── Sales & CRM ─────────────────────────────────────────────────────────────
+
+model Customer {
+  id           String   @id @default(cuid())
+  code         String
+  name         String
+  ntn          String?
+  gst          String?
+  email        String?
+  phone        String?
+  address      String?
+  creditLimit  Decimal  @default(0) 
+  paymentTerms Int      @default(30)
+  salesRegion  String?
+  salesGroup   String?
+  salesmanId   String?
+  isActive     Boolean  @default(true)
+  companyId    String
+  company      Company  @relation(fields: [companyId], references: [id])
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  branches       CustomerBranch[]
+  quotations     SalesQuotation[]
+  orders         SalesOrder[]
+  deliveryNotes  DeliveryNote[]
+  invoices       SalesInvoice[]
+  leads          Lead[]
+  bookings       Booking[]
+
+  @@unique([companyId, code])
+}
+
+model CustomerBranch {
+  id         String   @id @default(cuid())
+  name       String
+  address    String?
+  phone      String?
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+}
+
+model SalesQuotation {
+  id          String   @id @default(cuid())
+  reference   String
+  date        DateTime
+  validUntil  DateTime?
+  status      DocStatus @default(DRAFT)
+  customerId  String
+  customer    Customer @relation(fields: [customerId], references: [id])
+  companyId   String
+  company     Company  @relation(fields: [companyId], references: [id])
+  subtotal    Decimal  @default(0) 
+  taxAmount   Decimal  @default(0) 
+  total       Decimal  @default(0) 
+  notes       String?
+  lines       SalesLine[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([companyId, reference])
+}
+
+model SalesOrder {
+  id          String   @id @default(cuid())
+  reference   String
+  date        DateTime
+  status      DocStatus @default(DRAFT)
+  customerId  String
+  customer    Customer @relation(fields: [customerId], references: [id])
+  companyId   String
+  company     Company  @relation(fields: [companyId], references: [id])
+  subtotal    Decimal  @default(0) 
+  taxAmount   Decimal  @default(0) 
+  total       Decimal  @default(0) 
+  notes       String?
+  lines       SalesLine[]
+  deliveryNotes DeliveryNote[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([companyId, reference])
+}
+
+model DeliveryNote {
+  id           String   @id @default(cuid())
+  reference    String
+  date         DateTime
+  status       DocStatus @default(DRAFT)
+  customerId   String
+  customer     Customer @relation(fields: [customerId], references: [id])
+  salesOrderId String?
+  salesOrder   SalesOrder? @relation(fields: [salesOrderId], references: [id])
+  companyId    String
+  company      Company  @relation(fields: [companyId], references: [id])
+  locationId   String?
+  location     Location? @relation(fields: [locationId], references: [id])
+  notes        String?
+  lines        SalesLine[]
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([companyId, reference])
+}
+
+model SalesInvoice {
+  id           String      @id @default(cuid())
+  reference    String
+  date         DateTime
+  dueDate      DateTime?
+  type         InvoiceType @default(CREDIT)
+  status       DocStatus   @default(DRAFT)
+  customerId   String
+  customer     Customer    @relation(fields: [customerId], references: [id])
+  companyId    String
+  company      Company     @relation(fields: [companyId], references: [id])
+  costCenterId String?
+  costCenter   CostCenter? @relation(fields: [costCenterId], references: [id])
+  subtotal     Decimal     @default(0) 
+  taxAmount    Decimal     @default(0) 
+  withholding  Decimal     @default(0) 
+  total        Decimal     @default(0) 
+  paidAmount   Decimal     @default(0) 
+  notes        String?
+  lines        SalesLine[]
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  bookings     Booking[]
+
+  @@unique([companyId, reference])
+}
+
+enum InvoiceType {
+  CASH
+  CREDIT
+  SALES_TAX
+}
+
+model SalesLine {
+  id               String          @id @default(cuid())
+  itemId           String
+  item             Item            @relation(fields: [itemId], references: [id])
+  description      String?
+  quantity         Decimal         
+  unitPrice        Decimal         
+  discount         Decimal         @default(0) 
+  taxRate          Decimal         @default(0) 
+  lineTotal        Decimal         
+  salesQuotationId String?
+  salesQuotation   SalesQuotation? @relation(fields: [salesQuotationId], references: [id], onDelete: Cascade)
+  salesOrderId     String?
+  salesOrder       SalesOrder?     @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
+  deliveryNoteId   String?
+  deliveryNote     DeliveryNote?   @relation(fields: [deliveryNoteId], references: [id], onDelete: Cascade)
+  salesInvoiceId   String?
+  salesInvoice     SalesInvoice?   @relation(fields: [salesInvoiceId], references: [id], onDelete: Cascade)
+}
+
+model Lead {
+  id         String     @id @default(cuid())
+  name       String
+  email      String?
+  phone      String?
+  company    String?
+  source     String?
+  stage      LeadStage  @default(COLD)
+  notes      String?
+  customerId String?
+  customer   Customer?  @relation(fields: [customerId], references: [id])
+  companyId  String
+  org        Company    @relation(fields: [companyId], references: [id])
+  tasks      CrmTask[]
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+}
+
+enum LeadStage {
+  COLD
+  WARM
+  HOT
+  CONVERTED
+  LOST
+}
+
+model CrmTask {
+  id        String    @id @default(cuid())
+  title     String
+  dueDate   DateTime?
+  completed Boolean   @default(false)
+  leadId    String
+  lead      Lead      @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+// ─── Purchases ───────────────────────────────────────────────────────────────
+
+model Supplier {
+  id           String   @id @default(cuid())
+  code         String
+  name         String
+  ntn          String?
+  gst          String?
+  email        String?
+  phone        String?
+  address      String?
+  paymentTerms Int      @default(30)
+  isActive     Boolean  @default(true)
+  companyId    String
+  company      Company  @relation(fields: [companyId], references: [id])
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  vendorType   String   @default("GENERAL") // TRANSPORT, FUEL, REPAIR, GENERAL
+  balance      Decimal  @default(0)
+
+  purchaseOrders   PurchaseOrder[]
+  goodsReceipts    GoodsReceipt[]
+  purchaseInvoices PurchaseInvoice[]
+
+  @@unique([companyId, code])
+}
+
+model PurchaseOrder {
+  id         String   @id @default(cuid())
+  reference  String
+  date       DateTime
+  status     DocStatus @default(DRAFT)
+  supplierId String
+  supplier   Supplier @relation(fields: [supplierId], references: [id])
+  companyId  String
+  company    Company  @relation(fields: [companyId], references: [id])
+  subtotal   Decimal  @default(0) 
+  taxAmount  Decimal  @default(0) 
+  total      Decimal  @default(0) 
+  notes      String?
+  lines      PurchaseLine[]
+  goodsReceipts GoodsReceipt[]
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([companyId, reference])
+}
+
+model GoodsReceipt {
+  id              String   @id @default(cuid())
+  reference       String
+  date            DateTime
+  status          DocStatus @default(DRAFT)
+  supplierId      String
+  supplier        Supplier @relation(fields: [supplierId], references: [id])
+  purchaseOrderId String?
+  purchaseOrder   PurchaseOrder? @relation(fields: [purchaseOrderId], references: [id])
+  companyId       String
+  company         Company  @relation(fields: [companyId], references: [id])
+  locationId      String?
+  location        Location? @relation(fields: [locationId], references: [id])
+  notes           String?
+  lines           PurchaseLine[]
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([companyId, reference])
+}
+
+model PurchaseInvoice {
+  id           String      @id @default(cuid())
+  reference    String
+  date         DateTime
+  dueDate      DateTime?
+  type         InvoiceType @default(CREDIT)
+  status       DocStatus   @default(DRAFT)
+  supplierId   String
+  supplier     Supplier    @relation(fields: [supplierId], references: [id])
+  companyId    String
+  company      Company     @relation(fields: [companyId], references: [id])
+  costCenterId String?
+  costCenter   CostCenter? @relation(fields: [costCenterId], references: [id])
+  subtotal     Decimal     @default(0) 
+  taxAmount    Decimal     @default(0) 
+  total        Decimal     @default(0) 
+  paidAmount   Decimal     @default(0) 
+  notes        String?
+  lines        PurchaseLine[]
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  @@unique([companyId, reference])
+}
+
+model PurchaseLine {
+  id                String           @id @default(cuid())
+  itemId            String
+  item              Item             @relation(fields: [itemId], references: [id])
+  description       String?
+  quantity          Decimal          
+  unitPrice         Decimal          
+  discount          Decimal          @default(0) 
+  taxRate           Decimal          @default(0) 
+  lineTotal         Decimal          
+  purchaseOrderId   String?
+  purchaseOrder     PurchaseOrder?   @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  goodsReceiptId    String?
+  goodsReceipt      GoodsReceipt?    @relation(fields: [goodsReceiptId], references: [id], onDelete: Cascade)
+  purchaseInvoiceId String?
+  purchaseInvoice   PurchaseInvoice? @relation(fields: [purchaseInvoiceId], references: [id], onDelete: Cascade)
+}
+
+// ─── Inventory ───────────────────────────────────────────────────────────────
+
+model Item {
+  id           String       @id @default(cuid())
+  code         String
+  name         String
+  description  String?
+  type         ItemType     @default(INVENTORY)
+  category     String?
+  unit         String       @default("PCS")
+  costPrice    Decimal      @default(0) 
+  salePrice    Decimal      @default(0) 
+  reorderLevel Decimal      @default(0) 
+  barcode      String?
+  isActive     Boolean      @default(true)
+  companyId    String
+  company      Company      @relation(fields: [companyId], references: [id])
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  stockLevels  StockLevel[]
+  salesLines   SalesLine[]
+  purchaseLines PurchaseLine[]
+  bomItems     BomItem[]    @relation("BomComponent")
+  bomProducts  BomItem[]    @relation("BomProduct")
+  workOrderLines WorkOrderLine[]
+
+  @@unique([companyId, code])
+}
+
+enum ItemType {
+  INVENTORY
+  SERVICE
+  KIT
+}
+
+model Location {
+  id        String   @id @default(cuid())
+  code      String
+  name      String
+  address   String?
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  stockLevels    StockLevel[]
+  deliveryNotes  DeliveryNote[]
+  goodsReceipts  GoodsReceipt[]
+  stockTransfers StockTransfer[] @relation("FromLocation")
+  stockTransfersTo StockTransfer[] @relation("ToLocation")
+
+  @@unique([companyId, code])
+}
+
+model StockLevel {
+  id         String   @id @default(cuid())
+  itemId     String
+  item       Item     @relation(fields: [itemId], references: [id])
+  locationId String
+  location   Location @relation(fields: [locationId], references: [id])
+  quantity   Decimal  @default(0) 
+
+  @@unique([itemId, locationId])
+}
+
+model StockTransfer {
+  id             String   @id @default(cuid())
+  reference      String
+  date           DateTime
+  fromLocationId String
+  fromLocation   Location @relation("FromLocation", fields: [fromLocationId], references: [id])
+  toLocationId   String
+  toLocation     Location @relation("ToLocation", fields: [toLocationId], references: [id])
+  status         DocStatus @default(DRAFT)
+  notes          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model StockAdjustment {
+  id         String   @id @default(cuid())
+  reference  String
+  date       DateTime
+  locationId String
+  reason     String?
+  status     DocStatus @default(DRAFT)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+// ─── Manufacturing ───────────────────────────────────────────────────────────
+
+model BillOfMaterial {
+  id          String    @id @default(cuid())
+  name        String
+  description String?
+  isActive    Boolean   @default(true)
+  items       BomItem[]
+  workOrders  WorkOrder[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model BomItem {
+  id        String         @id @default(cuid())
+  bomId     String
+  bom       BillOfMaterial @relation(fields: [bomId], references: [id], onDelete: Cascade)
+  productId String
+  product   Item           @relation("BomProduct", fields: [productId], references: [id])
+  componentId String
+  component Item           @relation("BomComponent", fields: [componentId], references: [id])
+  quantity  Decimal        
+}
+
+model WorkOrder {
+  id          String   @id @default(cuid())
+  reference   String
+  date        DateTime
+  status      DocStatus @default(DRAFT)
+  bomId       String?
+  bom         BillOfMaterial? @relation(fields: [bomId], references: [id])
+  companyId   String
+  company     Company  @relation(fields: [companyId], references: [id])
+  quantity    Decimal  
+  notes       String?
+  lines       WorkOrderLine[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([companyId, reference])
+}
+
+model WorkOrderLine {
+  id          String    @id @default(cuid())
+  workOrderId String
+  workOrder   WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+  itemId      String
+  item        Item      @relation(fields: [itemId], references: [id])
+  quantity    Decimal   
+  unitCost    Decimal   @default(0) 
+}
+
+// ─── Fixed Assets ────────────────────────────────────────────────────────────
+
+model FixedAsset {
+  id               String             @id @default(cuid())
+  code             String
+  name             String
+  category         String
+  purchaseDate     DateTime
+  purchaseCost     Decimal            
+  salvageValue     Decimal            @default(0) 
+  usefulLifeMonths Int
+  depreciationMethod DepreciationMethod @default(STRAIGHT_LINE)
+  accumulatedDep   Decimal            @default(0) 
+  bookValue        Decimal            
+  location         String?
+  status           AssetStatus        @default(ACTIVE)
+  companyId        String
+  company          Company            @relation(fields: [companyId], references: [id])
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  @@unique([companyId, code])
+}
+
+enum DepreciationMethod {
+  STRAIGHT_LINE
+  DECLINING_BALANCE
+  ONE_TIME
+}
+
+enum AssetStatus {
+  ACTIVE
+  DISPOSED
+  SOLD
+}
+
+// ─── Payroll / HR ────────────────────────────────────────────────────────────
+
+model Employee {
+  id         String   @id @default(cuid())
+  code       String
+  name       String
+  email      String?
+  phone      String?
+  department String?
+  designation String?
+  joinDate   DateTime
+  basicSalary Decimal 
+  isActive   Boolean  @default(true)
+  companyId  String
+  company    Company  @relation(fields: [companyId], references: [id])
+  payrolls   Payroll[]
+  drivers    Driver[]
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([companyId, code])
+}
+
+model Payroll {
+  id         String        @id @default(cuid())
+  reference  String
+  month      Int
+  year       Int
+  employeeId String
+  employee   Employee      @relation(fields: [employeeId], references: [id])
+  basicSalary Decimal      
+  allowances  Decimal      @default(0) 
+  deductions  Decimal      @default(0) 
+  netSalary   Decimal      
+  status      DocStatus    @default(DRAFT)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+}
+
+// ─── Shared ──────────────────────────────────────────────────────────────────
+
+enum DocStatus {
+  DRAFT
+  APPROVED
+  POSTED
+  CANCELLED
+}
+
+// ─── Logistics & Fleet Management ─────────────────────────────────────────────
+
+model Vehicle {
+  id           String        @id @default(cuid())
+  plateNumber  String
+  make         String
+  model        String
+  year         Int
+  type         String        // e.g. TRUCK, VAN, TRAILER
+  status       VehicleStatus @default(ACTIVE)
+  companyId    String
+  company      Company       @relation(fields: [companyId], references: [id])
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  category       String        @default("Truck")
+  registrationNo String?
+  ownershipType  String        @default("OWNED") // OWNED, LEASED, RENTED
+  insuranceExpiry DateTime?
+  fitnessExpiry   DateTime?
+  permitExpiry    DateTime?
+  taxExpiry       DateTime?
+  tyreCount       Int           @default(10)
+  batteryDetails  String?
+  gpsDeviceId     String?
+  availability    Boolean       @default(true)
+
+  trips        Trip[]
+  fuelLogs     FuelLog[]
+  maintenances VehicleMaintenance[]
+
+  @@unique([companyId, plateNumber])
+}
+
+enum VehicleStatus {
+  ACTIVE
+  MAINTENANCE
+  INACTIVE
+}
+
+model Driver {
+  id            String       @id @default(cuid())
+  name          String
+  licenseNumber String
+  phone         String?
+  status        DriverStatus @default(AVAILABLE)
+  employeeId    String?
+  employee      Employee?    @relation(fields: [employeeId], references: [id])
+  companyId     String
+  company       Company      @relation(fields: [companyId], references: [id])
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  cnic             String?
+  licenseExpiry    DateTime?
+  medicalDetails   String?
+  emergencyContact String?
+  rating           Decimal      @default(5.0)
+  salary           Decimal      @default(0)
+  advances         Decimal      @default(0)
+  bonuses          Decimal      @default(0)
+  penalties        Decimal      @default(0)
+
+  trips         Trip[]
+
+  @@unique([companyId, licenseNumber])
+}
+
+enum DriverStatus {
+  AVAILABLE
+  ON_TRIP
+  INACTIVE
+}
+
+model Route {
+  id             String   @id @default(cuid())
+  name           String   // e.g. "Karachi to Lahore"
+  origin         String
+  destination    String
+  distanceKm     Decimal  
+  estDurationHrs Decimal  
+  companyId      String
+  company        Company  @relation(fields: [companyId], references: [id])
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  trips          Trip[]
+
+  @@unique([companyId, name])
+}
+
+model Booking {
+  id                 String        @id @default(cuid())
+  bookingNo          String
+  date               DateTime
+  customerId         String
+  customer           Customer      @relation(fields: [customerId], references: [id])
+  status             BookingStatus @default(QUOTATION)
+  originAddress      String
+  destinationAddress String
+  cargoDescription   String?
+  cargoWeight        Decimal?      
+  cargoVolume        Decimal?      
+  estDeliveryDate    DateTime?
+  actDeliveryDate    DateTime?
+  charges            Decimal       
+  invoiceId          String?
+  invoice            SalesInvoice? @relation(fields: [invoiceId], references: [id])
+  tripId             String?
+  trip               Trip?         @relation(fields: [tripId], references: [id])
+  companyId          String
+  company            Company       @relation(fields: [companyId], references: [id])
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  podNotes        String?
+  podSubmittedAt  DateTime?
+  auditTrail      String?       // Stored as JSON string
+
+  @@unique([companyId, bookingNo])
+}
+
+enum BookingStatus {
+  QUOTATION
+  BOOKING
+  SHIPMENT
+  PICKUP
+  DISPATCHED
+  IN_TRANSIT
+  DELIVERED
+  CANCELLED
+}
+
+model Trip {
+  id             String      @id @default(cuid())
+  tripNo         String
+  date           DateTime
+  vehicleId      String
+  vehicle        Vehicle     @relation(fields: [vehicleId], references: [id])
+  driverId       String
+  driver         Driver      @relation(fields: [driverId], references: [id])
+  routeId        String
+  route          Route       @relation(fields: [routeId], references: [id])
+  status         TripStatus  @default(PLANNED)
+  startOdometer  Decimal?    
+  endOdometer    Decimal?    
+  fuelConsHrs    Decimal?    
+  notes          String?
+  companyId      String
+  company        Company     @relation(fields: [companyId], references: [id])
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  bookings       Booking[]
+  expenses       TripExpense[]
+  fuelLogs       FuelLog[]
+
+  @@unique([companyId, tripNo])
+}
+
+enum TripStatus {
+  PLANNED
+  DISPATCHED
+  COMPLETED
+  CANCELLED
+}
+
+model TripExpense {
+  id             String   @id @default(cuid())
+  tripId         String
+  trip           Trip     @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  expenseDate    DateTime
+  category       String
+  amount         Decimal  
+  description    String?
+  journalEntryId String?
+  journalEntry   JournalEntry? @relation(fields: [journalEntryId], references: [id])
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model FuelLog {
+  id             String   @id @default(cuid())
+  tripId         String?
+  trip           Trip?    @relation(fields: [tripId], references: [id], onDelete: SetNull)
+  vehicleId      String
+  vehicle        Vehicle  @relation(fields: [vehicleId], references: [id])
+  date           DateTime
+  liters         Decimal  
+  pricePerLiter  Decimal  
+  totalCost      Decimal  
+  odometer       Decimal  
+  station        String?
+  journalEntryId String?
+  journalEntry   JournalEntry? @relation(fields: [journalEntryId], references: [id])
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model VehicleMaintenance {
+  id             String   @id @default(cuid())
+  vehicleId      String
+  vehicle        Vehicle  @relation(fields: [vehicleId], references: [id])
+  date           DateTime
+  type           String
+  cost           Decimal  
+  description    String?
+  status         String
+  journalEntryId String?
+  journalEntry   JournalEntry? @relation(fields: [journalEntryId], references: [id])
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model DocumentAttachment {
+  id          String   @id @default(cuid())
+  title       String
+  category    String
+  fileUrl     String?
+  entityType  String
+  entityId    String
+  companyId   String
+  company     Company  @relation(fields: [companyId], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model AccountMapping {
+  id              String      @id @default(cuid())
+  transactionType String      // e.g. BOOKING_INVOICE, FUEL_EXPENSE, VEHICLE_MAINTENANCE, PAYROLL, DRIVER_ADVANCE, CUSTOMER_PAYMENT
+  debitAccountId  String
+  debitAccount    Account     @relation("DebitMapping", fields: [debitAccountId], references: [id])
+  creditAccountId String
+  creditAccount   Account     @relation("CreditMapping", fields: [creditAccountId], references: [id])
+  companyId       String
+  company         Company     @relation(fields: [companyId], references: [id])
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  @@unique([companyId, transactionType])
+}
