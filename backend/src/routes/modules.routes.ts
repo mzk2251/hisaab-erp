@@ -263,9 +263,9 @@ reportRouter.get('/trial-balance', async (req, res, next) => {
       orderBy: { code: 'asc' },
     });
 
-    const rows = accounts.map((account) => {
-      const debit = account.journalLines.reduce((sum, l) => sum + Number(l.debit), 0);
-      const credit = account.journalLines.reduce((sum, l) => sum + Number(l.credit), 0);
+    const rows = accounts.map((account: any) => {
+      const debit = account.journalLines.reduce((sum: number, l: any) => sum + Number(l.debit), 0);
+      const credit = account.journalLines.reduce((sum: number, l: any) => sum + Number(l.credit), 0);
       return { code: account.code, name: account.name, type: account.type, debit, credit, balance: debit - credit };
     });
 
@@ -998,7 +998,7 @@ logisticsReportRouter.get('/profit-loss', async (req, res, next) => {
       where: { companyId, invoiceId: { not: null } },
       select: { charges: true },
     });
-    const revenue = bookings.reduce((sum, b) => sum + Number(b.charges), 0);
+    const revenue = bookings.reduce((sum: number, b: any) => sum + Number(b.charges), 0);
 
     // Expenses
     const [fuelCostSum, maintenanceCostSum, driverSalaries] = await Promise.all([
@@ -1068,7 +1068,7 @@ logisticsReportRouter.get('/driver-performance', async (req, res, next) => {
       },
     });
 
-    const rows = drivers.map((d) => ({
+    const rows = drivers.map((d: any) => ({
       id: d.id,
       name: d.name,
       license: d.licenseNumber,
