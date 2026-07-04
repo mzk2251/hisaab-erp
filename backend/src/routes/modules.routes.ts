@@ -998,7 +998,7 @@ logisticsReportRouter.get('/profit-loss', async (req, res, next) => {
       where: { companyId, invoiceId: { not: null } },
       select: { charges: true },
     });
-    const revenue = bookings.reduce((sum: number, b: { charges: any }) => sum + Number(b.charges), 0);
+    const revenue = bookings.reduce((sum: number, b: any) => sum + Number(b.charges), 0);
 
     // Expenses
     const [fuelCostSum, maintenanceCostSum, driverSalaries] = await Promise.all([

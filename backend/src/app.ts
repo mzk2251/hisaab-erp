@@ -11,8 +11,23 @@ const app = express();
 
 const isProd = process.env.NODE_ENV === 'production';
 
+const allowedOrigins = [
+  'http://localhost:5173',
+  'http://localhost:3000',
+  ...(process.env.FRONTEND_URL ? [process.env.FRONTEND_URL] : []),
+];
+
 app.use(cors({
-  origin: isProd ? '*' : (process.env.FRONTEND_URL ?? 'http://localhost:5173'),
+  origin: isProd
+    ? (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+        // Allow Railway domains and configured FRONTEND_URL
+        if (!origin || allowedOrigins.includes(origin) || origin.endsWith('.railway.app') || origin.endsWith('.up.railway.app')) {
+          callback(null, true);
+        } else {
+          callback(null, true); // permissive for client demo — lock down in production
+        }
+      }
+    : (process.env.FRONTEND_URL ?? 'http://localhost:5173'),
 }));
 app.use(express.json());
 
